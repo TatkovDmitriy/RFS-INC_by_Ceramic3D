@@ -977,9 +977,25 @@ function renderWorkflow(){
       `<div class="wf-meta">Отменено: ${e(ts.cancelled_at||'')}</div>`;
   }
 }
+function clearKeyInSheet(sheetName,keyCode){
+  const url=DATA.apps_script_url;
+  if(!url||!keyCode)return;
+  toast('Освобождаю ключ в таблице…','info',3000);
+  const params=new URLSearchParams({sheetName,keyCode,status:'',ticket:''});
+  const tryIt=(attempt)=>{
+    fetch(url+'?'+params.toString())
+      .then(r=>r.json())
+      .then(d=>d.success?toast('✓ Ключ освобождён в таблице','success'):toast('⚠ '+( d.error||'ошибка'),'warn',6000))
+      .catch(()=>{if(attempt<3)setTimeout(()=>tryIt(attempt+1),3000);else toast('✗ Не удалось освободить ключ','error',8000);});
+  };
+  tryIt(1);
+}
 function resetTicket(){
+  const ts=getTS(curTicket);
+  if(ts.key_code&&ts.key_sheet)clearKeyInSheet(ts.key_sheet,ts.key_code);
   setTS(curTicket,{status:'Активна',resolve_type:null,key_type:null,key_cat:null,
-    key_display:null,sent_at:null,done_at:null,taken_at:null,cancel_comment:null,cancelled_at:null});
+    key_code:null,key_sheet:null,key_display:null,sent_at:null,done_at:null,taken_at:null,
+    cancel_comment:null,cancelled_at:null});
   renderWorkflow();renderTable();calcSavings();
 }
 function showCancelForm(){
@@ -994,6 +1010,8 @@ function hideCancelForm(){
 }
 function cancelTicket(){
   const comment=document.getElementById('cancel-comment').value.trim();
+  const ts=getTS(curTicket);
+  if(ts.key_code&&ts.key_sheet)clearKeyInSheet(ts.key_sheet,ts.key_code);
   setTS(curTicket,{status:'Отменена',cancel_comment:comment,cancelled_at:now()});
   renderWorkflow();renderTable();calcSavings();
 }
@@ -1005,6 +1023,16 @@ function toggleKeySel(){
   const v=document.querySelector('input[name="rtype"]:checked')?.value;
   document.getElementById('key-sel').style.display=v==='replace'?'flex':'none';
 }
+function getUsedKeyCodes(sheetName){
+  const s=getStatuses();
+  const used=new Set();
+  Object.entries(s).forEach(([ticket,ts])=>{
+    if(ticket===curTicket)return;
+    if(['Согласование','Выполнено'].includes(ts.status)&&ts.resolve_type==='replace'&&ts.key_sheet===sheetName&&ts.key_code)
+      used.add(ts.key_code);
+  });
+  return used;
+}
 function updateKeyList(){
   const t=document.getElementById('sel-type').value;
   const c=document.getElementById('sel-cat').value;
@@ -1013,7 +1041,9 @@ function updateKeyList(){
   if(!t||!c)return;
   const sheetName=c+'_'+t;
   const keys=DATA.keys[sheetName]||[];
-  keys.forEach(k=>{
+  const used=getUsedKeyCodes(sheetName);
+  const avail=keys.filter(k=>!used.has(k['Ключ']||''));
+  avail.forEach(k=>{
     const partner=k['Партнер']||'';
     const keyCode=k['Ключ']||'';
     const expiry=k['Окончание рабочего периода ключа']||k['Окончание рабочего периода ОР']||'';
@@ -1024,7 +1054,7 @@ function updateKeyList(){
     o.textContent=label;
     sel.appendChild(o);
   });
-  if(!keys.length){
+  if(!avail.length){
     const o=document.createElement('option');
     o.disabled=true;o.textContent='Нет доступных ключей';
     sel.appendChild(o);
@@ -1041,6 +1071,7 @@ function sendApproval(){
     if(!kt||!kc||!kv){alert('Выберите тип, категорию и ключ');return;}
     let ki;try{ki=JSON.parse(kv);}catch(err){ki={keyCode:kv};}
     data.key_type=kt;data.key_cat=kc;
+    data.key_code=ki.keyCode;data.key_sheet=kc+'_'+kt;
     data.key_display=[ki.partner,ki.keyCode,ki.expiry?'до '+ki.expiry:''].filter(v=>v).join(' | ');
     updateKeyInSheet(kc+'_'+kt,ki.keyCode,curTicket);
   }
