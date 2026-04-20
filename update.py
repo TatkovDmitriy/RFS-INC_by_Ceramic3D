@@ -14,6 +14,8 @@ urllib3.disable_warnings()
 
 # ── Конфигурация ─────────────────────────────────────────────────────────────
 SHEET_ID         = '1afKOZkU1YdLM5JXOzXGq36K5NR4ZyMiUHhAB8JdGZK4'
+KEYS_SHEET_ID    = '1vf7W7oXXBEFwW37QV1CMy2sH2zkHUzrAHbmFj9P2-YE'
+KEYS_SHEETS      = ['Кухни_Лицензии', 'Ванные_Лицензии', 'Кухни_Рендер', 'Ванные_Рендер']
 TOKEN_PATH       = os.environ.get('TOKEN_PATH', 'C:/Users/tatko/.config/google-docs-mcp/token.json')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '398606258856-mvvu5it2p7hgro3s3s6msfbjf6f7uf70.apps.googleusercontent.com')
 CLIENT_SECRET    = os.environ.get('GOOGLE_CLIENT_SECRET', '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')
@@ -111,6 +113,36 @@ def parse_email(msg):
         description=desc.strip(), add_info=add_info.strip(),
         contact=contact.strip(), emp_id=emp_id.strip(), store=store.strip()
     )
+
+# ── Keys spreadsheet ─────────────────────────────────────────────────────────
+def sheets_read(tok, sid, range_):
+    url = f'https://sheets.googleapis.com/v4/spreadsheets/{sid}/values/{urllib.parse.quote(range_)}'
+    hdr = {'Authorization': f'Bearer {tok}'}
+    req = urllib.request.Request(url, headers=hdr)
+    try:
+        return json.loads(urllib.request.urlopen(req).read()).get('values', [])
+    except Exception as ex:
+        log(f'sheets_read {range_}: {ex}')
+        return []
+
+def fetch_keys(tok):
+    result = {}
+    for sheet in KEYS_SHEETS:
+        rows = sheets_read(tok, KEYS_SHEET_ID, f'{sheet}!A:Z')
+        if not rows:
+            result[sheet] = []
+            continue
+        headers = [h.strip() for h in rows[0]]
+        status_idx = next((i for i, h in enumerate(headers) if 'статус' in h.lower()), None)
+        available = []
+        for row in rows[1:]:
+            row_p = row + [''] * max(0, len(headers) - len(row))
+            status = row_p[status_idx].strip() if status_idx is not None else ''
+            if not status:
+                available.append(dict(zip(headers, row_p)))
+        result[sheet] = available
+        log(f'  Ключи {sheet}: {len(available)} доступно')
+    return result
 
 # ── Google Sheets API ─────────────────────────────────────────────────────────
 def get_token():
@@ -425,7 +457,7 @@ def add_charts(tok, sid, ws, nw, ds, nd):
         batch_update(tok, charts)
 
 # ── HTML Dashboard Generator ──────────────────────────────────────────────────
-def generate_html(inc_rows, rfs_rows, updated_at):
+def generate_html(inc_rows, rfs_rows, updated_at, keys_data=None):
     now       = updated_at
     week_ago  = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
@@ -467,6 +499,7 @@ def generate_html(inc_rows, rfs_rows, updated_at):
         'rfs': ser(rfs_rows),
         'weekly': weekly,
         'daily': daily,
+        'keys': keys_data or {},
         'stats': {
             'inc_total': cnt(inc_rows),
             'rfs_total': cnt(rfs_rows),
@@ -561,6 +594,31 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
 .dd{margin-top:14px}
 .dd label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px}
 .dd .v{font-size:13px;line-height:1.6;background:var(--sur2);padding:10px 12px;border-radius:8px;white-space:pre-wrap;word-break:break-word}
+/* Status badges */
+.st-badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap}
+.st-active{background:rgba(59,130,246,.2);color:#60a5fa}
+.st-working{background:rgba(245,158,11,.2);color:#fbbf24}
+.st-approval{background:rgba(139,92,246,.2);color:#a78bfa}
+.st-done{background:rgba(34,197,94,.2);color:#4ade80}
+/* Workflow */
+.wf-section{margin-top:20px;border-top:1px solid var(--brd);padding-top:18px}
+.wf-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.wf-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.wf-action{margin-top:12px}
+.wf-btn{padding:9px 18px;border-radius:8px;border:none;font-family:'Manrope',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s}
+.wf-btn:hover{opacity:.85}
+.btn-take{background:#2563eb;color:#fff}
+.btn-approval{background:#8b5cf6;color:#fff;margin-top:12px}
+.btn-done{background:#059669;color:#fff}
+.wf-radio-group{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.wf-radio{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+.wf-radio input{cursor:pointer;accent-color:#8b5cf6}
+.wf-selects{display:flex;flex-direction:column;gap:8px;margin-bottom:4px}
+.wf-select{background:var(--sur2);border:1px solid var(--brd);border-radius:8px;padding:8px 10px;color:var(--txt);font-family:'Manrope',sans-serif;font-size:13px}
+.wf-select:focus{outline:none;border-color:#8b5cf6}
+.wf-info-box{background:var(--sur2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.6}
+.wf-info-box strong{color:var(--txt)}
+.wf-info-box .wf-meta{color:var(--muted);font-size:11px;margin-top:4px}
 /* Scrollbar */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:var(--sur)}
@@ -612,15 +670,7 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
     </div>
     <div class="twrap">
       <table id="tbl">
-        <thead><tr>
-          <th onclick="srt('ticket')">Тикет</th>
-          <th onclick="srt('received')">Получено</th>
-          <th onclick="srt('priority')">Приоритет</th>
-          <th onclick="srt('category')">Категория</th>
-          <th>Описание</th>
-          <th onclick="srt('store')">Магазин</th>
-          <th onclick="srt('contact')">Контакт</th>
-        </tr></thead>
+        <thead><tr id="thead-row"></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -631,11 +681,61 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
   <div class="dp" id="dp">
     <div class="dp-close" onclick="closeD()">×</div>
     <div id="dc"></div>
+    <div class="wf-section" id="workflow" style="display:none">
+      <div class="wf-header">
+        <span class="wf-lbl">Статус заявки</span>
+        <span id="wf-status"></span>
+      </div>
+      <div id="wf-take" class="wf-action" style="display:none">
+        <button class="wf-btn btn-take" onclick="takeTicket()">▶ Взять в работу</button>
+      </div>
+      <div id="wf-resolve" class="wf-action" style="display:none">
+        <div class="wf-radio-group">
+          <label class="wf-radio"><input type="radio" name="rtype" value="new" onchange="toggleKeySel()"> Новый ключ</label>
+          <label class="wf-radio"><input type="radio" name="rtype" value="replace" onchange="toggleKeySel()"> Замена старого ключа</label>
+        </div>
+        <div id="key-sel" class="wf-selects" style="display:none">
+          <select id="sel-type" class="wf-select" onchange="updateKeyList()">
+            <option value="">Тип...</option>
+            <option value="Лицензии">Лицензия</option>
+            <option value="Рендер">Рендер</option>
+          </select>
+          <select id="sel-cat" class="wf-select" onchange="updateKeyList()">
+            <option value="">Категория...</option>
+            <option value="Кухни">Кухни</option>
+            <option value="Ванные">Ванные</option>
+          </select>
+          <select id="sel-key" class="wf-select"><option value="">Выберите ключ...</option></select>
+        </div>
+        <button class="wf-btn btn-approval" onclick="sendApproval()">→ Отправить на согласование</button>
+      </div>
+      <div id="wf-approval" class="wf-action" style="display:none">
+        <div class="wf-info-box" id="wf-aprv-info"></div>
+        <button class="wf-btn btn-done" onclick="completeTicket()">✓ Выполнено</button>
+      </div>
+      <div id="wf-done" class="wf-action" style="display:none">
+        <div class="wf-info-box" id="wf-done-info"></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
-let tab='inc',col='received',dir=-1,fd=[];
+// ── State ──────────────────────────────────────────────────────────────
+let tab='inc',col='received',dir=-1,fd=[],curTicket=null;
+const ST_KEY='c3d_rfs_statuses';
+function getStatuses(){return JSON.parse(localStorage.getItem(ST_KEY)||'{}')}
+function saveStatuses(s){localStorage.setItem(ST_KEY,JSON.stringify(s))}
+function getTS(ticket){return getStatuses()[ticket]||{status:'Активна'}}
+function setTS(ticket,data){const s=getStatuses();s[ticket]={...(s[ticket]||{}),...data};saveStatuses(s)}
+
+// ── Status badge ───────────────────────────────────────────────────────
+function stBadge(st){
+  const m={'Активна':'st-active','В работе':'st-working','Согласование':'st-approval','Выполнено':'st-done'};
+  return`<span class="st-badge ${m[st]||'st-active'}">${st||'Активна'}</span>`;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────
 function init(){
   document.getElementById('updtime').textContent=DATA.updated;
   const s=DATA.stats;
@@ -685,9 +785,11 @@ function applyFilters(){
 function srt(c){
   if(col===c)dir*=-1;else{col=c;dir=-1;}
   document.querySelectorAll('thead th').forEach(th=>th.classList.remove('srt'));
-  event.target.classList.add('srt');
+  if(event&&event.target)event.target.classList.add('srt');
   applyFilters();
 }
+
+// ── Helpers ────────────────────────────────────────────────────────────
 function pb(p){
   const l=(p||'').toLowerCase();
   let c='p-oth';
@@ -695,25 +797,41 @@ function pb(p){
   else if(l.includes('высок')||l==='2')c='p-high';
   else if(l.includes('средн')||l==='3')c='p-med';
   else if(l.includes('низк')||l==='4')c='p-low';
-  return '<span class="pb '+c+'">'+(p||'—')+'</span>';
+  return'<span class="pb '+c+'">'+(p||'—')+'</span>';
 }
 function e(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function trunc(s,n){return(s||'').length>n?(s.slice(0,n)+'…'):s;}
+function now(){return new Date().toLocaleString('ru',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+
+// ── Table render ───────────────────────────────────────────────────────
 function renderTable(){
+  const isRFS=tab==='rfs';
+  const cols=isRFS
+    ?`<th>Статус</th><th onclick="srt('ticket')">Тикет</th><th onclick="srt('received')">Получено</th><th onclick="srt('priority')">Приоритет</th><th onclick="srt('category')">Категория</th><th>Описание</th><th onclick="srt('store')">Магазин</th>`
+    :`<th onclick="srt('ticket')">Тикет</th><th onclick="srt('received')">Получено</th><th onclick="srt('priority')">Приоритет</th><th onclick="srt('category')">Категория</th><th>Описание</th><th onclick="srt('store')">Магазин</th><th onclick="srt('contact')">Контакт</th>`;
+  document.getElementById('thead-row').innerHTML=cols;
+  const span=isRFS?7:7;
   const tb=document.getElementById('tbody');
-  if(!fd.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Нет данных</td></tr>';return;}
-  tb.innerHTML=fd.map((r,i)=>`<tr onclick="showD(${i})">
-    <td><span class="tn">${e(r.ticket)}</span></td>
-    <td style="color:var(--muted);font-size:12px">${e(r.received)}</td>
-    <td>${pb(r.priority)}</td>
-    <td title="${e(r.category)}">${e(trunc(r.category,38))}</td>
-    <td title="${e(r.description)}">${e(trunc(r.description,55))}</td>
-    <td style="color:var(--muted)">${e(r.store)}</td>
-    <td style="color:var(--muted)">${e(r.contact)}</td>
-  </tr>`).join('');
+  if(!fd.length){tb.innerHTML=`<tr><td colspan="${span}" style="text-align:center;padding:32px;color:var(--muted)">Нет данных</td></tr>`;return;}
+  tb.innerHTML=fd.map((r,i)=>{
+    const st=isRFS?stBadge(getTS(r.ticket).status):'';
+    return`<tr onclick="showD(${i})">
+      ${isRFS?`<td>${st}</td>`:''}
+      <td><span class="tn">${e(r.ticket)}</span></td>
+      <td style="color:var(--muted);font-size:12px">${e(r.received)}</td>
+      <td>${pb(r.priority)}</td>
+      <td title="${e(r.category)}">${e(trunc(r.category,38))}</td>
+      <td title="${e(r.description)}">${e(trunc(r.description,55))}</td>
+      <td style="color:var(--muted)">${e(r.store)}</td>
+      ${!isRFS?`<td style="color:var(--muted)">${e(r.contact)}</td>`:''}
+    </tr>`;
+  }).join('');
 }
+
+// ── Modal ──────────────────────────────────────────────────────────────
 function showD(i){
   const r=fd[i];
+  curTicket=r.ticket;
   document.getElementById('dc').innerHTML=`
     <div class="dt ${tab}">${e(r.ticket)}</div>
     <div class="d-grid">
@@ -728,6 +846,12 @@ function showD(i){
     ${r.description?'<div class="dd"><label>Описание</label><div class="v">'+e(r.description)+'</div></div>':''}
     ${r.add_info?'<div class="dd"><label>Доп. информация</label><div class="v">'+e(r.add_info)+'</div></div>':''}
   `;
+  if(tab==='rfs'){
+    document.getElementById('workflow').style.display='block';
+    renderWorkflow();
+  } else {
+    document.getElementById('workflow').style.display='none';
+  }
   document.getElementById('ov').classList.add('open');
 }
 function closeD(ev){
@@ -735,6 +859,84 @@ function closeD(ev){
     document.getElementById('ov').classList.remove('open');
 }
 document.addEventListener('keydown',ev=>{if(ev.key==='Escape')closeD();});
+
+// ── Workflow ───────────────────────────────────────────────────────────
+function renderWorkflow(){
+  const ts=getTS(curTicket);
+  const st=ts.status||'Активна';
+  document.getElementById('wf-status').innerHTML=stBadge(st);
+  // Reset radio
+  document.querySelectorAll('input[name="rtype"]').forEach(r=>r.checked=false);
+  document.getElementById('key-sel').style.display='none';
+  document.getElementById('sel-type').value='';
+  document.getElementById('sel-cat').value='';
+  document.getElementById('sel-key').innerHTML='<option value="">Выберите ключ...</option>';
+  // Show sections
+  document.getElementById('wf-take').style.display=st==='Активна'?'block':'none';
+  document.getElementById('wf-resolve').style.display=st==='В работе'?'block':'none';
+  document.getElementById('wf-approval').style.display=st==='Согласование'?'block':'none';
+  document.getElementById('wf-done').style.display=st==='Выполнено'?'block':'none';
+  // Fill info boxes
+  if(st==='Согласование'||st==='Выполнено'){
+    const info=ts.resolve_type==='new'
+      ?'<strong>Решение:</strong> Новый ключ'
+      :`<strong>Решение:</strong> Замена — ${e(ts.key_type||'')} / ${e(ts.key_cat||'')}<br><strong>Ключ:</strong> ${e(ts.key_display||'')}`;
+    if(st==='Согласование'){
+      document.getElementById('wf-aprv-info').innerHTML=info+`<div class="wf-meta">Отправлено на согласование: ${e(ts.sent_at||'')}</div>`;
+    } else {
+      document.getElementById('wf-done-info').innerHTML=info+`<div class="wf-meta">Выполнено: ${e(ts.done_at||'')}</div>`;
+    }
+  }
+}
+function takeTicket(){
+  setTS(curTicket,{status:'В работе',taken_at:now()});
+  renderWorkflow();renderTable();
+}
+function toggleKeySel(){
+  const v=document.querySelector('input[name="rtype"]:checked')?.value;
+  document.getElementById('key-sel').style.display=v==='replace'?'flex':'none';
+}
+function updateKeyList(){
+  const t=document.getElementById('sel-type').value;
+  const c=document.getElementById('sel-cat').value;
+  const sel=document.getElementById('sel-key');
+  sel.innerHTML='<option value="">Выберите ключ...</option>';
+  if(!t||!c)return;
+  const sheetName=`${c}_${t}`;
+  const keys=DATA.keys[sheetName]||[];
+  keys.forEach(k=>{
+    const display=Object.entries(k)
+      .filter(([kk,vv])=>!kk.toLowerCase().includes('статус')&&(vv||'').toString().trim())
+      .map(([kk,vv])=>vv).join(' | ');
+    if(!display)return;
+    const o=document.createElement('option');
+    o.value=display;o.textContent=display;
+    sel.appendChild(o);
+  });
+  if(keys.length===0){
+    const o=document.createElement('option');
+    o.disabled=true;o.textContent='Нет доступных ключей';
+    sel.appendChild(o);
+  }
+}
+function sendApproval(){
+  const rt=document.querySelector('input[name="rtype"]:checked')?.value;
+  if(!rt){alert('Выберите тип решения');return;}
+  let data={status:'Согласование',resolve_type:rt,sent_at:now()};
+  if(rt==='replace'){
+    const kt=document.getElementById('sel-type').value;
+    const kc=document.getElementById('sel-cat').value;
+    const kv=document.getElementById('sel-key').value;
+    if(!kt||!kc||!kv){alert('Выберите тип, категорию и ключ');return;}
+    data.key_type=kt;data.key_cat=kc;data.key_display=kv;
+  }
+  setTS(curTicket,data);
+  renderWorkflow();renderTable();
+}
+function completeTicket(){
+  setTS(curTicket,{status:'Выполнено',done_at:now()});
+  renderWorkflow();renderTable();
+}
 
 function renderCharts(){
   const g='rgba(255,255,255,.06)',tk='#8b949e';
@@ -828,9 +1030,12 @@ def main():
     log('Дашборд...')
     write_dashboard(tok, sids['Дашборд'], inc_rows, rfs_rows)
 
+    log('Загрузка ключей из таблицы...')
+    keys_data = fetch_keys(tok)
+
     log('Генерация HTML...')
     now  = datetime.now(MSK)
-    html = generate_html(inc_rows, rfs_rows, now)
+    html = generate_html(inc_rows, rfs_rows, now, keys_data)
     with open(HTML_OUT, 'w', encoding='utf-8') as f:
         f.write(html)
     log(f'  HTML сохранён: {HTML_OUT}')
