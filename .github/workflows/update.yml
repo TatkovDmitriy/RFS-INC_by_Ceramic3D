@@ -1,0 +1,40 @@
+name: Daily Ceramic3D Update
+
+on:
+  schedule:
+    - cron: '0 5 * * *'   # 08:00 МСК (UTC+3)
+  workflow_dispatch:        # ручной запуск через кнопку Actions
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run update script
+        env:
+          EWS_PASS:             ${{ secrets.EWS_PASS }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          HTML_OUT:             index.html
+          LOG_FILE:             update.log
+        run: python update.py
+
+      - name: Commit & push HTML report
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add index.html update.log
+          git diff --staged --quiet || git commit -m "Daily update $(date +'%Y-%m-%d %H:%M UTC')"
+          git push
