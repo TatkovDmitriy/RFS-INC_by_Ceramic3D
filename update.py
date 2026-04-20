@@ -133,7 +133,7 @@ def fetch_keys(tok):
             result[sheet] = []
             continue
         headers = [h.strip() for h in rows[0]]
-        status_idx = next((i for i, h in enumerate(headers) if 'статус' in h.lower()), None)
+        status_idx = next((i for i, h in enumerate(headers) if h.strip() == 'Статус'), None)
         available = []
         for row in rows[1:]:
             row_p = row + [''] * max(0, len(headers) - len(row))
@@ -594,6 +594,22 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
 .dd{margin-top:14px}
 .dd label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px}
 .dd .v{font-size:13px;line-height:1.6;background:var(--sur2);padding:10px 12px;border-radius:8px;white-space:pre-wrap;word-break:break-word}
+/* Savings section */
+.sav-sec{background:var(--sur);border:1px solid var(--brd);border-radius:12px;padding:16px 20px;margin-bottom:20px}
+.sav-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sav-hdr-lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.sav-grid{display:grid;grid-template-columns:1fr 1fr 1.2fr 1.2fr 1.4fr;gap:12px}
+.sav-card{background:var(--sur2);border:1px solid var(--brd);border-radius:8px;padding:12px 14px}
+.sav-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
+.sav-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.sav-row:last-child{border-bottom:none}
+.sav-row span{color:var(--muted)}
+.sav-row strong{color:var(--txt);font-size:15px}
+.sav-amt{font-size:22px;font-weight:800;color:#fbbf24;margin-top:6px;letter-spacing:-0.5px}
+.sav-sub{font-size:11px;color:var(--muted);margin-top:3px}
+.sav-total-card{background:linear-gradient(135deg,rgba(5,150,105,.12),rgba(37,99,235,.12));border-color:rgba(5,150,105,.4)}
+.sav-grand{font-size:28px;font-weight:800;color:#34d399;margin-top:6px;letter-spacing:-0.5px}
+@media(max-width:900px){.sav-grid{grid-template-columns:1fr 1fr}.sav-total-card{grid-column:1/-1}}
 /* Status badges */
 .st-badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap}
 .st-active{background:rgba(59,130,246,.2);color:#60a5fa}
@@ -650,6 +666,41 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
     <div class="sc rfs"><div class="sc-lbl">RFS — Заявки</div><div class="sc-val" id="s1">—</div><div class="sc-sub">с 01.04.2026</div></div>
     <div class="sc wk"><div class="sc-lbl">За 7 дней</div><div class="sc-val" id="s2">—</div><div class="sc-sub" id="s2s"></div></div>
     <div class="sc td"><div class="sc-lbl">Сегодня</div><div class="sc-val" id="s3">—</div><div class="sc-sub" id="s3s"></div></div>
+  </div>
+
+  <div class="sav-sec">
+    <div class="sav-hdr">
+      <span class="sav-hdr-lbl">Экономия с 06.03.2026</span>
+    </div>
+    <div class="sav-grid">
+      <div class="sav-card">
+        <div class="sav-lbl">Ключей заменено</div>
+        <div class="sav-row"><span>Кухни</span><strong id="sv-kk">—</strong></div>
+        <div class="sav-row"><span>Ванные</span><strong id="sv-bk">—</strong></div>
+        <div class="sav-row"><span>Итого</span><strong id="sv-tk">—</strong></div>
+      </div>
+      <div class="sav-card">
+        <div class="sav-lbl">Рендеров заменено</div>
+        <div class="sav-row"><span>Кухни</span><strong id="sv-kr">—</strong></div>
+        <div class="sav-row"><span>Ванные</span><strong id="sv-br">—</strong></div>
+        <div class="sav-row"><span>Итого</span><strong id="sv-tr">—</strong></div>
+      </div>
+      <div class="sav-card">
+        <div class="sav-lbl">Экономия — ключи</div>
+        <div class="sav-amt" id="sv-amt-k">—</div>
+        <div class="sav-sub" id="sv-sub-k"></div>
+      </div>
+      <div class="sav-card">
+        <div class="sav-lbl">Экономия — рендеры</div>
+        <div class="sav-amt" id="sv-amt-r">—</div>
+        <div class="sav-sub" id="sv-sub-r"></div>
+      </div>
+      <div class="sav-card sav-total-card">
+        <div class="sav-lbl">Итого сэкономлено</div>
+        <div class="sav-grand" id="sv-grand">—</div>
+        <div class="sav-sub" id="sv-grand-sub"></div>
+      </div>
+    </div>
   </div>
 
   <div class="charts">
@@ -747,7 +798,7 @@ function init(){
   document.getElementById('s3s').textContent='INC: '+s.inc_today+' · RFS: '+s.rfs_today;
   document.getElementById('cn-inc').textContent=DATA.inc.length;
   document.getElementById('cn-rfs').textContent=DATA.rfs.length;
-  buildFilters();renderCharts();applyFilters();
+  buildFilters();renderCharts();applyFilters();calcSavings();
 }
 function buildFilters(){
   const all=[...DATA.inc,...DATA.rfs];
@@ -902,18 +953,20 @@ function updateKeyList(){
   const sel=document.getElementById('sel-key');
   sel.innerHTML='<option value="">Выберите ключ...</option>';
   if(!t||!c)return;
-  const sheetName=`${c}_${t}`;
+  const sheetName=c+'_'+t;
   const keys=DATA.keys[sheetName]||[];
   keys.forEach(k=>{
-    const display=Object.entries(k)
-      .filter(([kk,vv])=>!kk.toLowerCase().includes('статус')&&(vv||'').toString().trim())
-      .map(([kk,vv])=>vv).join(' | ');
-    if(!display)return;
+    const partner=k['Партнер']||'';
+    const keyCode=k['Ключ']||'';
+    const expiry=k['Окончание рабочего периода ключа']||k['Окончание рабочего периода ОР']||'';
+    const label=[partner,keyCode,expiry?'до '+expiry:''].filter(v=>v.trim()).join(' | ');
+    if(!label)return;
     const o=document.createElement('option');
-    o.value=display;o.textContent=display;
+    o.value=JSON.stringify({partner,keyCode,expiry});
+    o.textContent=label;
     sel.appendChild(o);
   });
-  if(keys.length===0){
+  if(!keys.length){
     const o=document.createElement('option');
     o.disabled=true;o.textContent='Нет доступных ключей';
     sel.appendChild(o);
@@ -928,14 +981,48 @@ function sendApproval(){
     const kc=document.getElementById('sel-cat').value;
     const kv=document.getElementById('sel-key').value;
     if(!kt||!kc||!kv){alert('Выберите тип, категорию и ключ');return;}
-    data.key_type=kt;data.key_cat=kc;data.key_display=kv;
+    let ki;try{ki=JSON.parse(kv);}catch(err){ki={keyCode:kv};}
+    data.key_type=kt;data.key_cat=kc;
+    data.key_display=[ki.partner,ki.keyCode,ki.expiry?'до '+ki.expiry:''].filter(v=>v).join(' | ');
   }
   setTS(curTicket,data);
-  renderWorkflow();renderTable();
+  renderWorkflow();renderTable();calcSavings();
 }
 function completeTicket(){
   setTS(curTicket,{status:'Выполнено',done_at:now()});
-  renderWorkflow();renderTable();
+  renderWorkflow();renderTable();calcSavings();
+}
+
+// ── Savings ────────────────────────────────────────────────────────────
+const PRICE={'Кухни_Лицензии':42000,'Ванные_Лицензии':53000,'Кухни_Рендер':42000,'Ванные_Рендер':42000};
+const HIST={kk:12,kk_amt:504000,bk:9,bk_amt:477000};
+function rub(n){return n.toLocaleString('ru-RU')+' ₽';}
+function calcSavings(){
+  const s=getStatuses();
+  let kk=0,bk=0,kr=0,br=0;
+  Object.values(s).forEach(ts=>{
+    if(ts.status!=='Выполнено'||ts.resolve_type!=='replace')return;
+    const tp=(ts.key_type||'').toLowerCase();
+    const ct=(ts.key_cat||'').toLowerCase();
+    if(tp.includes('лицензи')){if(ct.includes('кухн'))kk++;else if(ct.includes('ванн'))bk++;}
+    else if(tp.includes('рендер')){if(ct.includes('кухн'))kr++;else br++;}
+  });
+  const tkk=HIST.kk+kk,tbk=HIST.bk+bk;
+  const amtK=HIST.kk_amt+kk*PRICE['Кухни_Лицензии']+HIST.bk_amt+bk*PRICE['Ванные_Лицензии'];
+  const amtR=(kr+br)*PRICE['Кухни_Рендер'];
+  const grand=amtK+amtR;
+  document.getElementById('sv-kk').textContent=tkk;
+  document.getElementById('sv-bk').textContent=tbk;
+  document.getElementById('sv-tk').textContent=tkk+tbk;
+  document.getElementById('sv-kr').textContent=kr;
+  document.getElementById('sv-br').textContent=br;
+  document.getElementById('sv-tr').textContent=kr+br;
+  document.getElementById('sv-amt-k').textContent=rub(amtK);
+  document.getElementById('sv-sub-k').textContent=(tkk+tbk)+' ключей';
+  document.getElementById('sv-amt-r').textContent=rub(amtR);
+  document.getElementById('sv-sub-r').textContent=(kr+br)+' рендеров';
+  document.getElementById('sv-grand').textContent=rub(grand);
+  document.getElementById('sv-grand-sub').textContent='ключи + рендеры';
 }
 
 function renderCharts(){
