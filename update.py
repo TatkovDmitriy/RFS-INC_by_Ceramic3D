@@ -651,6 +651,8 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
 ::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 @media(max-width:900px){.main{padding:14px}.stats{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}.hdr{padding:14px 16px}}
+@keyframes slideIn{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.toast{background:var(--sur2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--txt);max-width:320px;box-shadow:0 4px 16px rgba(0,0,0,.5);animation:slideIn .2s ease;transition:opacity .3s}
 </style>
 </head>
 <body>
@@ -786,6 +788,7 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
       </div>
       <div id="wf-done" class="wf-action" style="display:none">
         <div class="wf-info-box" id="wf-done-info"></div>
+        <button class="wf-btn btn-reset" onclick="resetTicket()" style="margin-top:4px">↺ Вернуть в активный статус</button>
       </div>
       <div id="wf-cancelled" class="wf-action" style="display:none">
         <div class="wf-info-box" id="wf-cancelled-info"></div>
@@ -1044,14 +1047,39 @@ function sendApproval(){
   setTS(curTicket,data);
   renderWorkflow();renderTable();calcSavings();
 }
+function toast(msg,type,duration){
+  duration=duration||4000;
+  let c=document.getElementById('toast-cnt');
+  if(!c){c=document.createElement('div');c.id='toast-cnt';
+    c.style.cssText='position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+    document.body.appendChild(c);}
+  const colors={info:'#3b82f6',success:'#10b981',error:'#f87171',warn:'#f59e0b'};
+  const d=document.createElement('div');
+  d.className='toast';
+  d.style.borderLeft='4px solid '+(colors[type]||colors.info);
+  d.textContent=msg;
+  c.appendChild(d);
+  setTimeout(()=>{d.style.opacity='0';setTimeout(()=>d.remove(),320);},duration);
+}
 function updateKeyInSheet(sheetName,keyCode,ticket){
   const url=DATA.apps_script_url;
-  if(!url||!keyCode)return;
+  if(!url){toast('⚠ APPS_SCRIPT_URL не настроен — ключ не обновлён в таблице','warn',7000);return;}
+  if(!keyCode)return;
+  toast('Обновляю статус ключа в таблице…','info',3000);
   const params=new URLSearchParams({sheetName,keyCode,status:'Закрыта',ticket});
-  fetch(url+'?'+params.toString())
-    .then(r=>r.json())
-    .then(d=>d.success?console.log('Key updated in sheet'):console.warn('Key update:',d.error))
-    .catch(err=>console.warn('Sheet update error:',err));
+  const tryUpdate=(attempt)=>{
+    fetch(url+'?'+params.toString())
+      .then(r=>r.json())
+      .then(d=>{
+        if(d.success)toast('✓ Статус ключа «Закрыта» записан в таблицу','success');
+        else toast('⚠ Ошибка обновления ключа: '+(d.error||'неизвестно'),'warn',7000);
+      })
+      .catch(()=>{
+        if(attempt<3){setTimeout(()=>tryUpdate(attempt+1),3000);}
+        else toast('✗ Не удалось обновить ключ в таблице (3 попытки)','error',8000);
+      });
+  };
+  tryUpdate(1);
 }
 function completeTicket(){
   setTS(curTicket,{status:'Выполнено',done_at:now()});
