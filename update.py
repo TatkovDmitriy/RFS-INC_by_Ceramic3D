@@ -134,15 +134,13 @@ def fetch_keys(tok):
             result[sheet] = []
             continue
         headers = [h.strip() for h in rows[0]]
-        status_idx = next((i for i, h in enumerate(headers) if h.strip() == 'Статус'), None)
-        available = []
+        all_keys = []
         for row in rows[1:]:
             row_p = row + [''] * max(0, len(headers) - len(row))
-            status = row_p[status_idx].strip() if status_idx is not None else ''
-            if not status:
-                available.append(dict(zip(headers, row_p)))
-        result[sheet] = available
-        log(f'  Ключи {sheet}: {len(available)} доступно')
+            all_keys.append(dict(zip(headers, row_p)))
+        result[sheet] = all_keys
+        avail = sum(1 for k in all_keys if not k.get('Статус', '').strip())
+        log(f'  Ключи {sheet}: {avail} доступно из {len(all_keys)}')
     return result
 
 # ── Google Sheets API ─────────────────────────────────────────────────────────
@@ -992,7 +990,8 @@ function clearKeyInSheet(sheetName,keyCode){
 }
 function resetTicket(){
   const ts=getTS(curTicket);
-  if(ts.key_code&&ts.key_sheet)clearKeyInSheet(ts.key_sheet,ts.key_code);
+  const kc=resolveKeyCode(ts);const ks=resolveKeySheet(ts);
+  if(kc&&ks)clearKeyInSheet(ks,kc);
   setTS(curTicket,{status:'Активна',resolve_type:null,key_type:null,key_cat:null,
     key_code:null,key_sheet:null,key_display:null,sent_at:null,done_at:null,taken_at:null,
     cancel_comment:null,cancelled_at:null});
@@ -1011,7 +1010,8 @@ function hideCancelForm(){
 function cancelTicket(){
   const comment=document.getElementById('cancel-comment').value.trim();
   const ts=getTS(curTicket);
-  if(ts.key_code&&ts.key_sheet)clearKeyInSheet(ts.key_sheet,ts.key_code);
+  const kc=resolveKeyCode(ts);const ks=resolveKeySheet(ts);
+  if(kc&&ks)clearKeyInSheet(ks,kc);
   setTS(curTicket,{status:'Отменена',cancel_comment:comment,cancelled_at:now()});
   renderWorkflow();renderTable();calcSavings();
 }
@@ -1023,15 +1023,47 @@ function toggleKeySel(){
   const v=document.querySelector('input[name="rtype"]:checked')?.value;
   document.getElementById('key-sel').style.display=v==='replace'?'flex':'none';
 }
+function resolveKeySheet(ts){return ts.key_sheet||(ts.key_cat&&ts.key_type?ts.key_cat+'_'+ts.key_type:null);}
+function resolveKeyCode(ts){
+  if(ts.key_code)return ts.key_code;
+  if(!ts.key_display)return null;
+  const sn=resolveKeySheet(ts);
+  if(sn){for(const k of(DATA.keys[sn]||[])){const kc=k['Ключ']||'';if(kc&&ts.key_display.includes(kc))return kc;}}
+  for(const p of ts.key_display.split('|').map(s=>s.trim()).filter(Boolean))
+    if(!p.startsWith('до ')&&/^[A-Z0-9]{6,}$/i.test(p))return p;
+  return null;
+}
 function getUsedKeyCodes(sheetName){
-  const s=getStatuses();
-  const used=new Set();
+  const s=getStatuses();const used=new Set();
   Object.entries(s).forEach(([ticket,ts])=>{
     if(ticket===curTicket)return;
-    if(['Согласование','Выполнено'].includes(ts.status)&&ts.resolve_type==='replace'&&ts.key_sheet===sheetName&&ts.key_code)
-      used.add(ts.key_code);
+    if(['Согласование','Выполнено'].includes(ts.status)&&ts.resolve_type==='replace'){
+      const ks=resolveKeySheet(ts);const kc=resolveKeyCode(ts);
+      if(ks===sheetName&&kc)used.add(kc);
+    }
   });
   return used;
+}
+function renderKeyOptions(keys,sheetName){
+  const sel=document.getElementById('sel-key');
+  const used=getUsedKeyCodes(sheetName);
+  const avail=keys.filter(k=>{
+    const kc=k.keyCode||k['Ключ']||'';
+    const st=k.status!==undefined?k.status:(k['Статус']||'');
+    return!st.trim()&&!used.has(kc);
+  });
+  sel.innerHTML='<option value="">Выберите ключ...</option>';
+  avail.forEach(k=>{
+    const partner=k.partner||k['Партнер']||'';
+    const keyCode=k.keyCode||k['Ключ']||'';
+    const expiry=k.expiry||k['Окончание рабочего периода ключа']||k['Окончание рабочего периода ОР']||'';
+    const label=[partner,keyCode,expiry?'до '+expiry:''].filter(v=>v.trim()).join(' | ');
+    if(!label)return;
+    const o=document.createElement('option');
+    o.value=JSON.stringify({partner,keyCode,expiry});
+    o.textContent=label;sel.appendChild(o);
+  });
+  if(!avail.length){const o=document.createElement('option');o.disabled=true;o.textContent='Нет доступных ключей';sel.appendChild(o);}
 }
 function updateKeyList(){
   const t=document.getElementById('sel-type').value;
@@ -1040,24 +1072,15 @@ function updateKeyList(){
   sel.innerHTML='<option value="">Выберите ключ...</option>';
   if(!t||!c)return;
   const sheetName=c+'_'+t;
-  const keys=DATA.keys[sheetName]||[];
-  const used=getUsedKeyCodes(sheetName);
-  const avail=keys.filter(k=>!used.has(k['Ключ']||''));
-  avail.forEach(k=>{
-    const partner=k['Партнер']||'';
-    const keyCode=k['Ключ']||'';
-    const expiry=k['Окончание рабочего периода ключа']||k['Окончание рабочего периода ОР']||'';
-    const label=[partner,keyCode,expiry?'до '+expiry:''].filter(v=>v.trim()).join(' | ');
-    if(!label)return;
-    const o=document.createElement('option');
-    o.value=JSON.stringify({partner,keyCode,expiry});
-    o.textContent=label;
-    sel.appendChild(o);
-  });
-  if(!avail.length){
-    const o=document.createElement('option');
-    o.disabled=true;o.textContent='Нет доступных ключей';
-    sel.appendChild(o);
+  const url=DATA.apps_script_url;
+  if(url){
+    sel.innerHTML='<option value="">⏳ Загрузка из таблицы...</option>';
+    fetch(url+'?action=getKeys&sheetName='+encodeURIComponent(sheetName))
+      .then(r=>r.json())
+      .then(d=>d.success&&d.keys?renderKeyOptions(d.keys,sheetName):renderKeyOptions(DATA.keys[sheetName]||[],sheetName))
+      .catch(()=>renderKeyOptions(DATA.keys[sheetName]||[],sheetName));
+  } else {
+    renderKeyOptions(DATA.keys[sheetName]||[],sheetName);
   }
 }
 function sendApproval(){
