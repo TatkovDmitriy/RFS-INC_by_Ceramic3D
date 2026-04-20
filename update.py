@@ -4,7 +4,7 @@
 Ceramic 3D — ежедневное обновление обращений в Google Sheets + HTML-дашборд
 Запускается через GitHub Actions (05:00 UTC = 08:00 МСК)
 """
-import os, requests, warnings, sys, re, json, urllib.request, urllib.parse, urllib3
+import os, requests, warnings, sys, re, json, urllib.request, urllib.parse, urllib3, time
 from datetime import datetime, timezone, timedelta
 from collections import Counter, defaultdict
 from exchangelib import Credentials, Account, DELEGATE, Configuration, BaseProtocol
@@ -15,6 +15,7 @@ urllib3.disable_warnings()
 # ── Конфигурация ─────────────────────────────────────────────────────────────
 SHEET_ID         = '1afKOZkU1YdLM5JXOzXGq36K5NR4ZyMiUHhAB8JdGZK4'
 KEYS_SHEET_ID    = '1vf7W7oXXBEFwW37QV1CMy2sH2zkHUzrAHbmFj9P2-YE'
+APPS_SCRIPT_URL  = os.environ.get('APPS_SCRIPT_URL', '')
 KEYS_SHEETS      = ['Кухни_Лицензии', 'Ванные_Лицензии', 'Кухни_Рендер', 'Ванные_Рендер']
 TOKEN_PATH       = os.environ.get('TOKEN_PATH', 'C:/Users/tatko/.config/google-docs-mcp/token.json')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '398606258856-mvvu5it2p7hgro3s3s6msfbjf6f7uf70.apps.googleusercontent.com')
@@ -500,6 +501,7 @@ def generate_html(inc_rows, rfs_rows, updated_at, keys_data=None):
         'weekly': weekly,
         'daily': daily,
         'keys': keys_data or {},
+        'apps_script_url': APPS_SCRIPT_URL,
         'stats': {
             'inc_total': cnt(inc_rows),
             'rfs_total': cnt(rfs_rows),
@@ -616,6 +618,7 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
 .st-working{background:rgba(245,158,11,.2);color:#fbbf24}
 .st-approval{background:rgba(139,92,246,.2);color:#a78bfa}
 .st-done{background:rgba(34,197,94,.2);color:#4ade80}
+.st-cancelled{background:rgba(248,113,113,.2);color:#f87171}
 /* Workflow */
 .wf-section{margin-top:20px;border-top:1px solid var(--brd);padding-top:18px}
 .wf-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
@@ -626,6 +629,9 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
 .btn-take{background:#2563eb;color:#fff}
 .btn-approval{background:#8b5cf6;color:#fff;margin-top:12px}
 .btn-done{background:#059669;color:#fff}
+.btn-reset{background:var(--sur2);color:var(--muted);border:1px solid var(--brd);font-size:12px;padding:6px 12px}
+.btn-cancel-t{background:transparent;color:#f87171;border:1px solid rgba(248,113,113,.35);font-size:12px;padding:6px 12px}
+.wf-ctrl{display:flex;gap:6px;margin-left:auto}
 .wf-radio-group{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
 .wf-radio{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
 .wf-radio input{cursor:pointer;accent-color:#8b5cf6}
@@ -635,6 +641,10 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
 .wf-info-box{background:var(--sur2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.6}
 .wf-info-box strong{color:var(--txt)}
 .wf-info-box .wf-meta{color:var(--muted);font-size:11px;margin-top:4px}
+.cancel-form{margin-top:10px}
+.cancel-input{width:100%;background:var(--sur2);border:1px solid rgba(248,113,113,.4);border-radius:8px;padding:10px;color:var(--txt);font-family:'Manrope',sans-serif;font-size:13px;resize:vertical;min-height:68px}
+.cancel-input:focus{outline:none;border-color:#f87171}
+.cancel-btns{display:flex;gap:8px;margin-top:8px}
 /* Scrollbar */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:var(--sur)}
@@ -734,8 +744,18 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
     <div id="dc"></div>
     <div class="wf-section" id="workflow" style="display:none">
       <div class="wf-header">
-        <span class="wf-lbl">Статус заявки</span>
-        <span id="wf-status"></span>
+        <div><span class="wf-lbl">Статус заявки</span> <span id="wf-status"></span></div>
+        <div class="wf-ctrl" id="wf-ctrl" style="display:none">
+          <button class="wf-btn btn-reset" onclick="resetTicket()">↺ Сбросить</button>
+          <button class="wf-btn btn-cancel-t" id="wf-cancel-btn" onclick="showCancelForm()">✕ Отменить</button>
+        </div>
+      </div>
+      <div id="wf-cancel-form" class="cancel-form" style="display:none">
+        <textarea class="cancel-input" id="cancel-comment" placeholder="Укажите причину отмены..."></textarea>
+        <div class="cancel-btns">
+          <button class="wf-btn btn-cancel-t" onclick="cancelTicket()">Подтвердить отмену</button>
+          <button class="wf-btn btn-reset" onclick="hideCancelForm()">← Назад</button>
+        </div>
       </div>
       <div id="wf-take" class="wf-action" style="display:none">
         <button class="wf-btn btn-take" onclick="takeTicket()">▶ Взять в работу</button>
@@ -767,6 +787,10 @@ tbody td{padding:9px 14px;font-size:13px;max-width:280px;overflow:hidden;text-ov
       <div id="wf-done" class="wf-action" style="display:none">
         <div class="wf-info-box" id="wf-done-info"></div>
       </div>
+      <div id="wf-cancelled" class="wf-action" style="display:none">
+        <div class="wf-info-box" id="wf-cancelled-info"></div>
+        <button class="wf-btn btn-reset" onclick="resetTicket()" style="margin-top:4px">↺ Восстановить заявку</button>
+      </div>
     </div>
   </div>
 </div>
@@ -782,7 +806,7 @@ function setTS(ticket,data){const s=getStatuses();s[ticket]={...(s[ticket]||{}),
 
 // ── Status badge ───────────────────────────────────────────────────────
 function stBadge(st){
-  const m={'Активна':'st-active','В работе':'st-working','Согласование':'st-approval','Выполнено':'st-done'};
+  const m={'Активна':'st-active','В работе':'st-working','Согласование':'st-approval','Выполнено':'st-done','Отменена':'st-cancelled'};
   return`<span class="st-badge ${m[st]||'st-active'}">${st||'Активна'}</span>`;
 }
 
@@ -916,28 +940,59 @@ function renderWorkflow(){
   const ts=getTS(curTicket);
   const st=ts.status||'Активна';
   document.getElementById('wf-status').innerHTML=stBadge(st);
-  // Reset radio
+  // Reset inputs
   document.querySelectorAll('input[name="rtype"]').forEach(r=>r.checked=false);
   document.getElementById('key-sel').style.display='none';
   document.getElementById('sel-type').value='';
   document.getElementById('sel-cat').value='';
   document.getElementById('sel-key').innerHTML='<option value="">Выберите ключ...</option>';
+  document.getElementById('wf-cancel-form').style.display='none';
+  // Control buttons (Сбросить/Отменить)
+  const showCtrl = st!=='Активна'&&st!=='Выполнено';
+  document.getElementById('wf-ctrl').style.display=showCtrl?'flex':'none';
+  if(showCtrl) document.getElementById('wf-cancel-btn').style.display=st==='Отменена'?'none':'inline-flex';
   // Show sections
   document.getElementById('wf-take').style.display=st==='Активна'?'block':'none';
   document.getElementById('wf-resolve').style.display=st==='В работе'?'block':'none';
   document.getElementById('wf-approval').style.display=st==='Согласование'?'block':'none';
   document.getElementById('wf-done').style.display=st==='Выполнено'?'block':'none';
+  document.getElementById('wf-cancelled').style.display=st==='Отменена'?'block':'none';
   // Fill info boxes
   if(st==='Согласование'||st==='Выполнено'){
     const info=ts.resolve_type==='new'
       ?'<strong>Решение:</strong> Новый ключ'
       :`<strong>Решение:</strong> Замена — ${e(ts.key_type||'')} / ${e(ts.key_cat||'')}<br><strong>Ключ:</strong> ${e(ts.key_display||'')}`;
     if(st==='Согласование'){
-      document.getElementById('wf-aprv-info').innerHTML=info+`<div class="wf-meta">Отправлено на согласование: ${e(ts.sent_at||'')}</div>`;
+      document.getElementById('wf-aprv-info').innerHTML=info+`<div class="wf-meta">Отправлено: ${e(ts.sent_at||'')}</div>`;
     } else {
       document.getElementById('wf-done-info').innerHTML=info+`<div class="wf-meta">Выполнено: ${e(ts.done_at||'')}</div>`;
     }
   }
+  if(st==='Отменена'){
+    document.getElementById('wf-cancelled-info').innerHTML=
+      (ts.cancel_comment?`<strong>Причина:</strong> ${e(ts.cancel_comment)}<br>`:'<em style="color:var(--muted)">Причина не указана</em><br>')+
+      `<div class="wf-meta">Отменено: ${e(ts.cancelled_at||'')}</div>`;
+  }
+}
+function resetTicket(){
+  setTS(curTicket,{status:'Активна',resolve_type:null,key_type:null,key_cat:null,
+    key_display:null,sent_at:null,done_at:null,taken_at:null,cancel_comment:null,cancelled_at:null});
+  renderWorkflow();renderTable();calcSavings();
+}
+function showCancelForm(){
+  document.getElementById('wf-cancel-form').style.display='block';
+  document.getElementById('wf-ctrl').style.display='none';
+  document.getElementById('cancel-comment').value='';
+  document.getElementById('cancel-comment').focus();
+}
+function hideCancelForm(){
+  document.getElementById('wf-cancel-form').style.display='none';
+  document.getElementById('wf-ctrl').style.display='flex';
+}
+function cancelTicket(){
+  const comment=document.getElementById('cancel-comment').value.trim();
+  setTS(curTicket,{status:'Отменена',cancel_comment:comment,cancelled_at:now()});
+  renderWorkflow();renderTable();calcSavings();
 }
 function takeTicket(){
   setTS(curTicket,{status:'В работе',taken_at:now()});
@@ -984,9 +1039,19 @@ function sendApproval(){
     let ki;try{ki=JSON.parse(kv);}catch(err){ki={keyCode:kv};}
     data.key_type=kt;data.key_cat=kc;
     data.key_display=[ki.partner,ki.keyCode,ki.expiry?'до '+ki.expiry:''].filter(v=>v).join(' | ');
+    updateKeyInSheet(kc+'_'+kt,ki.keyCode,curTicket);
   }
   setTS(curTicket,data);
   renderWorkflow();renderTable();calcSavings();
+}
+function updateKeyInSheet(sheetName,keyCode,ticket){
+  const url=DATA.apps_script_url;
+  if(!url||!keyCode)return;
+  const params=new URLSearchParams({sheetName,keyCode,status:'Закрыта',ticket});
+  fetch(url+'?'+params.toString())
+    .then(r=>r.json())
+    .then(d=>d.success?console.log('Key updated in sheet'):console.warn('Key update:',d.error))
+    .catch(err=>console.warn('Sheet update error:',err));
 }
 function completeTicket(){
   setTS(curTicket,{status:'Выполнено',done_at:now()});
@@ -1074,11 +1139,23 @@ def main():
     acc = connect_ews()
 
     log('Загрузка писем...')
-    emails = list(acc.inbox.filter(
-        subject__icontains='ceramic3d',
-        datetime_received__gte=DATE_FROM
-    ).only('subject', 'sender', 'datetime_received', 'body'))
-    log(f'Загружено: {len(emails)} писем')
+    emails = []
+    for attempt in range(1, 4):
+        try:
+            qs = acc.inbox.filter(
+                subject__icontains='ceramic3d',
+                datetime_received__gte=DATE_FROM
+            ).only('subject', 'sender', 'datetime_received', 'body')
+            qs.page_size = 20
+            emails = list(qs)
+            log(f'Загружено: {len(emails)} писем')
+            break
+        except Exception as e:
+            log(f'Попытка {attempt}/3 не удалась: {e}')
+            if attempt < 3:
+                time.sleep(10 * attempt)
+            else:
+                raise
 
     parsed = [parse_email(m) for m in emails]
 

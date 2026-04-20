@@ -30,6 +30,7 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          APPS_SCRIPT_URL:      ${{ secrets.APPS_SCRIPT_URL }}
           HTML_OUT:             index.html
           LOG_FILE:             update.log
         run: python update.py
