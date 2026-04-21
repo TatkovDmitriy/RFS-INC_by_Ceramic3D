@@ -1218,26 +1218,32 @@ def main():
     log('=== Запуск обновления Ceramic3D ===')
 
     log('Подключение к почте...')
-    acc = connect_ews()
-
-    log('Загрузка писем...')
     emails = []
-    for attempt in range(1, 4):
-        try:
-            qs = acc.inbox.filter(
-                subject__icontains='ceramic3d',
-                datetime_received__gte=DATE_FROM
-            ).only('subject', 'sender', 'datetime_received', 'body')
-            qs.page_size = 20
-            emails = list(qs)
-            log(f'Загружено: {len(emails)} писем')
-            break
-        except Exception as e:
-            log(f'Попытка {attempt}/3 не удалась: {e}')
-            if attempt < 3:
-                time.sleep(10 * attempt)
-            else:
-                raise
+    ews_ok = False
+    try:
+        acc = connect_ews()
+        log('Загрузка писем...')
+        for attempt in range(1, 4):
+            try:
+                qs = acc.inbox.filter(
+                    subject__icontains='ceramic3d',
+                    datetime_received__gte=DATE_FROM
+                ).only('subject', 'sender', 'datetime_received', 'body')
+                qs.page_size = 20
+                emails = list(qs)
+                log(f'Загружено: {len(emails)} писем')
+                ews_ok = True
+                break
+            except Exception as e:
+                log(f'Попытка {attempt}/3 не удалась: {e}')
+                if attempt < 3:
+                    time.sleep(10 * attempt)
+    except Exception as e:
+        log(f'Ошибка подключения к EWS: {e}')
+
+    if not ews_ok:
+        log('⚠ EWS недоступен — дашборд не обновляется, сохраняются прежние данные')
+        sys.exit(0)
 
     parsed = [parse_email(m) for m in emails]
 
